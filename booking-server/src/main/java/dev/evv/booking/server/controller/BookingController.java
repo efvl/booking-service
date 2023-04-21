@@ -6,6 +6,9 @@ import dev.evv.booking.server.service.BookingService;
 import dev.evv.booking.server.service.OrderService;
 import dev.evv.order.client.model.Order;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
+import io.github.resilience4j.retry.annotation.Retry;
+
 import org.springframework.cloud.openfeign.EnableFeignClients;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -14,16 +17,19 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 @RestController
 @EnableFeignClients
 @RequestMapping(path = "/v1/room")
 public class BookingController {
-
+    public static Logger logger = Logger.getLogger(BookingController.class.getName());
     private static final String BACKEND_BOOKING = "backend_booking";
     private final BookingService bookingService;
     private final OrderService orderService;
+
+    private int retryAttemps = 1;
 
     private Map<Long, Room> rooms = new HashMap<>(){
         {
@@ -41,6 +47,7 @@ public class BookingController {
     }
 
     @GetMapping("/all")
+    @RateLimiter(name = BACKEND_BOOKING, fallbackMethod = "getAllReteLimFallback")
     public ResponseEntity<List<Room>> getRooms(){
         return ResponseEntity.ok(rooms.values().stream().toList());
     }
@@ -53,8 +60,10 @@ public class BookingController {
 
     @DeleteMapping("/{roomId}")
     @CircuitBreaker(name = BACKEND_BOOKING, fallbackMethod = "deleteByIdFallback")
+    @Retry(name = BACKEND_BOOKING, fallbackMethod = "deleteByIdRetryFallback")
     public ResponseEntity<String> deleteById(@PathVariable Long roomId){
 //        List<Order> roomOrders = bookingService.findOrdersByRoomId(roomId);
+        logger.info("attempt " + retryAttemps++);
         List<Order> allOrders = orderService.findAll().getBody();
         List<Order> roomOrders = allOrders.stream()
                 .filter(o -> o.getRoomId().equals(roomId))
@@ -75,7 +84,15 @@ public class BookingController {
     }
 
     public ResponseEntity<String> deleteByIdFallback(Exception e){
-        return ResponseEntity.ok("fallback from BookingService because OrderService is down");
+        return ResponseEntity.ok("(circuit breaker) fallback from BookingService because OrderService is down");
+    }
+
+    public ResponseEntity<String> deleteByIdRetryFallback(Exception e){
+        return ResponseEntity.ok("(retry) fallback from BookingService because OrderService is down");
+    }
+
+    public ResponseEntity<String> getAllReteLimFallback(Exception e){
+        return ResponseEntity.ok("(rateLimiter) fallback from BookingService because many request in some period of time");
     }
 
 }

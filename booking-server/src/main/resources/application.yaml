@@ -38,3 +38,16 @@ resilience4j:
         permittedNumberOfCallsInHalfOpenState: 3
         slidingWindowSize: 10
         slidingWindowType: COUNT_BASED
+  retry:
+    instances:
+      backend_booking:
+        registerHealthIndicator: true
+        maxRetryAttempts: 5
+        waitDuration: 5s
+  ratelimiter:
+    instances:
+      backend_booking:
+        registerHealthIndicator: true
+        limitForPeriod: 10
+        limitRefreshPeriod: 10s
+        timeoutDuration: 3s
